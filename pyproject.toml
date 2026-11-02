@@ -1,0 +1,19 @@
+[project]
+name = "lattice"
+version = "0.1.0"
+description = "Local-first agent with skills, project memory, and a privacy-gated knowledge oracle"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["lattice"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
