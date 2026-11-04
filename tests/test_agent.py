@@ -68,3 +68,16 @@ def test_step_limit_stops_runaway_loops(tmp_path):
     agent, _ = make(tmp_path, [act("list_files")] * 3, max_steps=3)
     result = agent.run("loop forever")
     assert not result.finished and result.answer is None and result.steps == 3
+
+
+def test_ollama_payload_cpu_mode_and_env(monkeypatch):
+    from lattice import OllamaBackend
+
+    msgs = [{"role": "user", "content": "hi"}]
+    monkeypatch.delenv("LATTICE_NUM_GPU", raising=False)
+    assert "num_gpu" not in OllamaBackend().build_payload(msgs)["options"]
+    assert OllamaBackend(num_gpu=0).build_payload(msgs)["options"]["num_gpu"] == 0
+    monkeypatch.setenv("LATTICE_NUM_GPU", "0")
+    assert OllamaBackend().build_payload(msgs)["options"]["num_gpu"] == 0
+    assert "format" not in OllamaBackend().build_payload(msgs)
+    assert OllamaBackend(json_mode=True).build_payload(msgs)["format"] == "json"

@@ -6,6 +6,7 @@ Swap Ollama for llama.cpp, vLLM, or a cloud API by writing one new class.
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
 from typing import Protocol
 
@@ -41,26 +42,39 @@ class OllamaBackend:
         host: str = "http://localhost:11434",
         timeout: float = 120.0,
         json_mode: bool = False,
-        temperature: float = 0.0,
+        temperature: float = 0.2,
+        repeat_penalty: float = 1.1,
         num_ctx: int = 4096,
+        num_gpu: int | None = None,
     ):
         self.model = model
         self.host = host.rstrip("/")
         self.timeout = timeout
         self.json_mode = json_mode  # grammar-constrained JSON; try it once the plain path works
-        self.temperature = temperature  # 0 = deterministic; tool-calling wants low randomness
+        self.temperature = temperature  # low: tool-calling wants little randomness, but 0 can loop
+        self.repeat_penalty = repeat_penalty
         self.num_ctx = num_ctx
+        # num_gpu=0 forces CPU. Needed on machines where Ollama's GPU path is broken
+        # (symptom: gibberish or "token repeat limit reached"). Env var sets a default.
+        if num_gpu is None and os.environ.get("LATTICE_NUM_GPU"):
+            num_gpu = int(os.environ["LATTICE_NUM_GPU"])
+        self.num_gpu = num_gpu
 
-    def complete(self, messages: list[Message]) -> str:
-        payload = {
-            "model": self.model,
-            "messages": messages,
-            "stream": False,
-            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
+    def build_payload(self, messages: list[Message]) -> dict:
+        options = {
+            "temperature": self.temperature,
+            "repeat_penalty": self.repeat_penalty,
+            "num_ctx": self.num_ctx,
         }
+        if self.num_gpu is not None:
+            options["num_gpu"] = self.num_gpu
+        payload = {"model": self.model, "messages": messages, "stream": False, "options": options}
         if self.json_mode:
             payload["format"] = "json"
-        body = json.dumps(payload).encode()
+        return payload
+
+    def complete(self, messages: list[Message]) -> str:
+        body = json.dumps(self.build_payload(messages)).encode()
         req = urllib.request.Request(
             f"{self.host}/api/chat",
             data=body,
