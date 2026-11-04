@@ -10,3 +10,5 @@ workspace/
 .env
 .DS_Store
 .lattice/
+*.patch
+*.bundle

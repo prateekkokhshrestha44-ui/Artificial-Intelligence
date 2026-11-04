@@ -3,6 +3,9 @@
 A local-first agent with a deliberate knowledge boundary: **skills** and **project memory** stay on your
 machine; external LLMs are a read-only knowledge oracle, queried only through a privacy gateway.
 
+> **New here? Read [docs/GUIDE.md](docs/GUIDE.md)** -- it explains every part, the design rules, and the
+> real problems we hit on live hardware (and their fixes).
+
 ## Status: Steps 1-2 done (local loop + project memory ledger)
 
 ```
@@ -12,7 +15,11 @@ lattice/
   agent.py      # the observe -> think -> act loop (+ optional ledger)
   memory.py     # SQLite project-memory ledger: typed, provenance, supersede, FTS search
 tests/
-  test_agent.py
+  test_agent.py, test_memory.py
+docs/
+  GUIDE.md      # architecture, concepts, troubleshooting, roadmap
+scripts/
+  live_demo.py, memory_demo.py, ollama_check.py, ollama_matrix.py
 ```
 
 ## Run the tests (no model needed)
