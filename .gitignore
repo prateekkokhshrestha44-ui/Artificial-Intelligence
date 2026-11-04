@@ -9,3 +9,4 @@ dist/
 workspace/
 .env
 .DS_Store
+.lattice/

@@ -3,13 +3,14 @@
 A local-first agent with a deliberate knowledge boundary: **skills** and **project memory** stay on your
 machine; external LLMs are a read-only knowledge oracle, queried only through a privacy gateway.
 
-## Status: Step 1 -- the local loop
+## Status: Steps 1-2 done (local loop + project memory ledger)
 
 ```
 lattice/
   backends.py   # ModelBackend interface + Ollama + scripted fake (for tests)
   tools.py      # Workspace-jailed read_file / write_file / list_files
-  agent.py      # the observe -> think -> act loop
+  agent.py      # the observe -> think -> act loop (+ optional ledger)
+  memory.py     # SQLite project-memory ledger: typed, provenance, supersede, FTS search
 tests/
   test_agent.py
 ```
@@ -32,5 +33,15 @@ print(Agent(OllamaBackend(), tools).run('Create hello.txt containing the word hi
 ```
 
 ## Roadmap
-1. Local loop (this step)  2. Project memory ledger  3. Skills on demand
+1. Local loop (done)  2. Project memory ledger (done)  3. Skills on demand
 4. Privacy gateway + external oracle  5. Hardening, HTTP API, packaging
+
+## Project memory (Step 2)
+
+```python
+from lattice import Agent, Ledger, OllamaBackend, Workspace, build_default_tools
+ledger = Ledger("./.lattice/ledger.db")          # keep OUTSIDE the agent's workspace
+agent = Agent(OllamaBackend(), build_default_tools(Workspace("./workspace")), ledger=ledger)
+```
+
+Live demo: `python scripts/memory_demo.py --cpu`  (add `--cpu` only if your GPU path is flaky).

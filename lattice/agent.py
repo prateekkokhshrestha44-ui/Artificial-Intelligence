@@ -11,9 +11,11 @@ Protocol (one JSON object per model reply):
 from __future__ import annotations
 
 import json
+import uuid
 from dataclasses import dataclass, field
 
 from .backends import Message, ModelBackend
+from .memory import Ledger, format_memory_block
 from .tools import Tool, ToolError
 
 MAX_OBSERVATION_CHARS = 4000  # crude guard against context rot (Phase 4 improves this)
@@ -65,16 +67,46 @@ class AgentResult:
 
 
 class Agent:
-    def __init__(self, backend: ModelBackend, tools: dict[str, Tool], max_steps: int = 8):
+    def __init__(
+        self,
+        backend: ModelBackend,
+        tools: dict[str, Tool],
+        max_steps: int = 8,
+        ledger: Ledger | None = None,
+        memory_limit: int = 5,
+    ):
         self.backend = backend
         self.tools = tools
         self.max_steps = max_steps
+        self.ledger = ledger
+        self.memory_limit = memory_limit
 
     def run(self, task: str) -> AgentResult:
+        system = build_system_prompt(self.tools)
+        task_id = uuid.uuid4().hex[:8]
+        if self.ledger is not None:
+            # Retrieve only what is relevant to THIS task -- never the whole ledger.
+            system += format_memory_block(self.ledger.search(task, limit=self.memory_limit))
         messages: list[Message] = [
-            {"role": "system", "content": build_system_prompt(self.tools)},
+            {"role": "system", "content": system},
             {"role": "user", "content": task},
         ]
+        result = self._loop(messages)
+        if self.ledger is not None:
+            self._record(task, task_id, result)
+        return result
+
+    def _record(self, task: str, task_id: str, result: AgentResult) -> None:
+        """Write the outcome. This is a system observation, so it gets source='system'."""
+        short = " ".join(task.split())[:200]
+        if result.finished:
+            text = f"Task '{short}' finished in {result.steps} steps. Answer: {(result.answer or '')[:300]}"
+            self.ledger.add("run", text, source="system", task_id=task_id)
+        else:
+            text = f"Task '{short}' did NOT finish within {result.steps} steps."
+            self.ledger.add("error", text, source="system", task_id=task_id)
+
+    def _loop(self, messages: list[Message]) -> AgentResult:
         for step in range(1, self.max_steps + 1):
             reply = self.backend.complete(messages)
             messages.append({"role": "assistant", "content": reply})
