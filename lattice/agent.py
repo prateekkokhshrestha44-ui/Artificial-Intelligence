@@ -65,6 +65,7 @@ class AgentResult:
     steps: int
     finished: bool
     transcript: list[Message] = field(default_factory=list)
+    tool_calls: int = 0  # how many tools actually ran (0 means the model just talked)
 
 
 class Agent:
@@ -98,10 +99,14 @@ class Agent:
         return result
 
     def _record(self, task: str, task_id: str, result: AgentResult) -> None:
-        """Write the outcome. This is a system observation, so it gets source='system'."""
+        """Write what the SYSTEM observed. The model's final answer is deliberately NOT stored:
+        it is a claim, not an observation, and storing it as trusted memory lets a hallucination
+        come back later as 'evidence'. What actually happened is captured by tool-effect facts."""
         short = " ".join(task.split())[:200]
         if result.finished:
-            text = f"Task '{short}' finished in {result.steps} steps. Answer: {(result.answer or '')[:300]}"
+            if result.tool_calls == 0:
+                return  # nothing was done or observed, so there is nothing worth remembering
+            text = f"Task '{short}' finished in {result.steps} steps using {result.tool_calls} tool call(s)."
             self.ledger.add("run", text, source="system", task_id=task_id)
         else:
             text = f"Task '{short}' did NOT finish within {result.steps} steps."
@@ -118,6 +123,7 @@ class Agent:
         self.ledger.add("fact", f"{tool.name}({detail}) succeeded: {observation[:120]}", source="system")
 
     def _loop(self, messages: list[Message]) -> AgentResult:
+        tool_calls = 0
         for step in range(1, self.max_steps + 1):
             reply = self.backend.complete(messages)
             messages.append({"role": "assistant", "content": reply})
@@ -141,13 +147,14 @@ class Agent:
                         "Use a tool to do the work first, then give a short text answer."
                     )})
                     continue
-                return AgentResult(action["final"], step, True, messages)
+                return AgentResult(action["final"], step, True, messages, tool_calls)
 
             observation = self._run_tool(action)
+            tool_calls += 1
             messages.append({"role": "user", "content": f"OBSERVATION: {observation}"})
             self._record_effect(action, observation)
 
-        return AgentResult(None, self.max_steps, False, messages)
+        return AgentResult(None, self.max_steps, False, messages, tool_calls)
 
     def _run_tool(self, action: dict) -> str:
         name = action.get("tool")

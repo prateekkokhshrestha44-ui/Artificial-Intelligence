@@ -222,3 +222,33 @@ def test_memory_block_tells_model_to_prefer_memory_over_examples():
     led = Ledger()
     led.add("fact", "plan.txt exists")
     assert "not from any format example" in format_memory_block(led.search("plan"))
+
+
+# ---- memory poisoning: a model's claim must never become trusted evidence ---------------
+def test_model_answers_are_never_stored_as_trusted_memory(tmp_path):
+    led = Ledger()
+    agent, _ = make(tmp_path, [act("write_file", path="plan.txt", content="step one"),
+                               final("We created a.txt containing hello")], led)
+    agent.run("make a plan")
+    everything = " ".join(e.text for e in led.recent(50))
+    assert "a.txt" not in everything and "hello" not in everything      # the claim is not stored
+    assert "plan.txt" in everything                                      # the observed effect is
+
+
+def test_wrong_answer_cannot_poison_a_repeat_of_the_same_question(tmp_path):
+    led = Ledger()
+    question = "Which file did we create earlier?"
+    agent, _ = make(tmp_path, [final("We created a.txt")], led)         # hallucinates, uses no tools
+    agent.run(question)
+    assert led.count() == 0                                              # nothing observed, nothing stored
+    agent2, backend = make(tmp_path, [final("x")], led)
+    agent2.run(question)
+    assert "a.txt" not in backend.calls[0][0]["content"]
+
+
+def test_run_entry_records_tool_call_count(tmp_path):
+    led = Ledger()
+    agent, _ = make(tmp_path, [act("list_files"), act("list_files"), final("ok")], led)
+    result = agent.run("look around")
+    assert result.tool_calls == 2
+    assert "2 tool call(s)" in led.recent(kinds=("run",))[0].text
