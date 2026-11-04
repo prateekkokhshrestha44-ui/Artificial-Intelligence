@@ -19,8 +19,11 @@ def post(path, payload):
     req = urllib.request.Request(
         HOST + path, data=json.dumps(payload).encode(), headers={"Content-Type": "application/json"}
     )
-    with urllib.request.urlopen(req, timeout=300) as r:
-        return json.load(r)
+    try:
+        with urllib.request.urlopen(req, timeout=300) as r:
+            return json.load(r)
+    except urllib.error.HTTPError as e:
+        sys.exit(f"\n   HTTP {e.code}: {e.read().decode(errors='replace')}")
 
 
 print("1) server reachable?")
