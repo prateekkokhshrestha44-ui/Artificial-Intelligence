@@ -81,3 +81,16 @@ def test_ollama_payload_cpu_mode_and_env(monkeypatch):
     assert OllamaBackend().build_payload(msgs)["options"]["num_gpu"] == 0
     assert "format" not in OllamaBackend().build_payload(msgs)
     assert OllamaBackend(json_mode=True).build_payload(msgs)["format"] == "json"
+
+
+def test_non_string_final_is_rejected_then_retried(tmp_path):
+    agent, _ = make(tmp_path, ['{"final": {"file_created": true}}', final("really done")])
+    result = agent.run("x")
+    assert result.answer == "really done" and result.steps == 2
+    assert "plain-text string" in result.transcript[3]["content"]
+
+
+def test_system_prompt_contains_worked_example():
+    from lattice.agent import build_system_prompt
+
+    assert "Example." in build_system_prompt(build_default_tools(Workspace("/tmp/_ws_prompt")))

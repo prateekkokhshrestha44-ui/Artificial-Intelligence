@@ -44,8 +44,14 @@ def build_system_prompt(tools: dict[str, Tool]) -> str:
     return (
         "You are a careful local agent. Reply with exactly ONE JSON object and nothing else.\n"
         'To use a tool: {"tool": "<name>", "args": {...}}\n'
-        'To finish: {"final": "<your answer>"}\n'
-        f"Available tools:\n{listing}"
+        'To finish: {"final": "<a short plain-text answer>"}\n'
+        "Rules: you cannot do anything except by calling a tool. Never say a task is done "
+        "until a tool result confirms it.\n"
+        f"Available tools:\n{listing}\n\n"
+        "Example. Task: create a.txt containing hello.\n"
+        '{"tool": "write_file", "args": {"path": "a.txt", "content": "hello"}}\n'
+        "OBSERVATION: wrote 5 chars to a.txt\n"
+        '{"final": "Created a.txt."}'
     )
 
 
@@ -81,7 +87,13 @@ class Agent:
                 continue
 
             if "final" in action:
-                return AgentResult(str(action["final"]), step, True, messages)
+                if not isinstance(action["final"], str):
+                    messages.append({"role": "user", "content": (
+                        'OBSERVATION: "final" must be a plain-text string. '
+                        "Use a tool to do the work first, then give a short text answer."
+                    )})
+                    continue
+                return AgentResult(action["final"], step, True, messages)
 
             observation = self._run_tool(action)
             messages.append({"role": "user", "content": f"OBSERVATION: {observation}"})
