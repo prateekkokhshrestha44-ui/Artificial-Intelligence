@@ -20,6 +20,7 @@ class Tool:
     name: str
     description: str
     fn: Callable[..., str]
+    mutating: bool = False  # True if it changes the world; the ledger records its successes as facts
 
 
 class Workspace:
@@ -60,7 +61,7 @@ def build_default_tools(ws: Workspace) -> dict[str, Tool]:
 
     tools = [
         Tool("read_file", "Read a text file. args: {path}", read_file),
-        Tool("write_file", "Write a text file. args: {path, content}", write_file),
+        Tool("write_file", "Write a text file. args: {path, content}", write_file, mutating=True),
         Tool("list_files", "List a directory. args: {path} (default '.')", list_files),
     ]
     return {t.name: t for t in tools}

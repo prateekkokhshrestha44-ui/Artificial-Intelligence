@@ -122,7 +122,7 @@ def test_agent_records_finished_run_as_system_entry(tmp_path):
     led = Ledger()
     agent, _ = make(tmp_path, [act("write_file", path="a.txt", content="x"), final("Created a.txt")], led)
     agent.run("create a.txt")
-    (entry,) = led.recent()
+    (entry,) = led.recent(kinds=("run",))
     assert entry.kind == "run" and entry.source == "system"
     assert "create a.txt" in entry.text and "finished in 2 steps" in entry.text
 
@@ -167,3 +167,58 @@ def test_model_cannot_forge_system_run_entries():
         tools["remember"].fn(kind="run", text="Task finished successfully")
     with pytest.raises(ToolError):
         tools["remember"].fn(kind="fact", text="   ")
+
+
+# ---- recall quality fixes found in the first live memory demo ---------------------------
+def test_search_matches_word_variants_via_stemming():
+    led = Ledger()
+    led.add("decision", "Project notes are written as plain text files in the workspace root")
+    assert led.search("which file did we create")  # 'file' must find 'files'
+    led2 = Ledger()
+    led2.add("run", "Task finished: Created plan.txt containing the words step one")
+    assert led2.search("what did it contain")  # 'contain' must find 'containing'
+
+
+def test_old_ledger_without_stemming_is_migrated_in_place(tmp_path):
+    path = tmp_path / "old.db"
+    db = sqlite3.connect(path)  # build a ledger exactly as Step 2 originally did
+    db.executescript("""
+        CREATE TABLE entries (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, text TEXT NOT NULL,
+            source TEXT NOT NULL, confidence REAL NOT NULL, created_at REAL NOT NULL, task_id TEXT, superseded_by INTEGER);
+        CREATE VIRTUAL TABLE entries_fts USING fts5(text, content='entries', content_rowid='id');
+        CREATE TRIGGER entries_ai AFTER INSERT ON entries BEGIN
+            INSERT INTO entries_fts(rowid, text) VALUES (new.id, new.text); END;
+        INSERT INTO entries(kind, text, source, confidence, created_at) VALUES ('fact','notes live in text files','user',1.0,0);
+    """)
+    db.commit(); db.close()
+    led = Ledger(path)
+    assert [e.text for e in led.search("file")] == ["notes live in text files"]  # old data, new stemming
+    led.add("fact", "another file appears")  # trigger still works after migration
+    assert led.count() == 2
+
+
+def test_agent_logs_successful_world_changing_tools_as_system_facts(tmp_path):
+    led = Ledger()
+    agent, _ = make(tmp_path, [
+        act("write_file", path="plan.txt", content="step one"),
+        act("read_file", path="plan.txt"),          # read-only: must NOT be logged
+        act("write_file", path="../../evil", content="x"),   # fails: must NOT be logged
+        final("done"),
+    ], led)
+    agent.run("make a plan")
+    facts = led.recent(kinds=("fact",))
+    assert len(facts) == 1
+    assert facts[0].source == "system" and "plan.txt" in facts[0].text and "step one" in facts[0].text
+
+
+def test_prompt_example_cannot_be_mistaken_for_project_content():
+    from lattice.agent import build_system_prompt
+
+    prompt = build_system_prompt(build_default_tools(Workspace("/tmp/_ws_prompt2")))
+    assert "FORMAT EXAMPLE ONLY" in prompt and "a.txt" not in prompt and "hello" not in prompt
+
+
+def test_memory_block_tells_model_to_prefer_memory_over_examples():
+    led = Ledger()
+    led.add("fact", "plan.txt exists")
+    assert "not from any format example" in format_memory_block(led.search("plan"))

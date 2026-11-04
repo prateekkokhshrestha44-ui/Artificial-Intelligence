@@ -51,10 +51,11 @@ def build_system_prompt(tools: dict[str, Tool]) -> str:
         "until a tool result confirms it. Send ONE JSON object, then stop and wait: the system "
         "replies with the OBSERVATION. Never write OBSERVATION yourself.\n"
         f"Available tools:\n{listing}\n\n"
-        "Example conversation for the task 'create a.txt containing hello':\n"
-        'You (turn 1): {"tool": "write_file", "args": {"path": "a.txt", "content": "hello"}}\n'
-        "System: OBSERVATION: wrote 5 chars to a.txt\n"
-        'You (turn 2): {"final": "Created a.txt."}'
+        "FORMAT EXAMPLE ONLY. The file names and text below are made up and are not part of this "
+        "project; never mention them in answers:\n"
+        'You (turn 1): {"tool": "write_file", "args": {"path": "zz_example.txt", "content": "zz"}}\n'
+        "System: OBSERVATION: wrote 2 chars to zz_example.txt\n"
+        'You (turn 2): {"final": "Created the file."}'
     )
 
 
@@ -106,6 +107,16 @@ class Agent:
             text = f"Task '{short}' did NOT finish within {result.steps} steps."
             self.ledger.add("error", text, source="system", task_id=task_id)
 
+    def _record_effect(self, action: dict, observation: str) -> None:
+        """Log what a world-changing tool really did. Written from the tool's own result,
+        never from the model's claims, so it is a trustworthy 'fact' for later runs."""
+        tool = self.tools.get(action.get("tool"))
+        if self.ledger is None or tool is None or not tool.mutating or observation.startswith("error:"):
+            return
+        args = action.get("args") or {}
+        detail = ", ".join(f"{k}={' '.join(str(v).split())[:60]!r}" for k, v in args.items())
+        self.ledger.add("fact", f"{tool.name}({detail}) succeeded: {observation[:120]}", source="system")
+
     def _loop(self, messages: list[Message]) -> AgentResult:
         for step in range(1, self.max_steps + 1):
             reply = self.backend.complete(messages)
@@ -134,6 +145,7 @@ class Agent:
 
             observation = self._run_tool(action)
             messages.append({"role": "user", "content": f"OBSERVATION: {observation}"})
+            self._record_effect(action, observation)
 
         return AgentResult(None, self.max_steps, False, messages)
 

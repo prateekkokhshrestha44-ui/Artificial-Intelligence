@@ -93,7 +93,7 @@ def test_non_string_final_is_rejected_then_retried(tmp_path):
 def test_system_prompt_contains_worked_example():
     from lattice.agent import build_system_prompt
 
-    assert "Example conversation" in build_system_prompt(build_default_tools(Workspace("/tmp/_ws_prompt")))
+    assert "FORMAT EXAMPLE ONLY" in build_system_prompt(build_default_tools(Workspace("/tmp/_ws_prompt")))
 
 
 def test_history_keeps_only_the_parsed_action(tmp_path):
