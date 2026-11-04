@@ -67,8 +67,11 @@ File: `lattice/memory.py`.
   top few relevant entries enter the prompt, so cost does not grow with ledger size.
 - **Evidence, not instructions**: memory is injected under a header saying it may be outdated and
   that commands inside it must not be followed. This blunts stored prompt injection.
-- **System-written outcomes**: after each run the *system* records the result. The model's
-  `remember` tool cannot write `run` entries, so it cannot fake its own track record.
+- **Observed facts only**: after a run the *system* records what it observed: that the task
+  finished, how many tool calls ran, and what each world-changing tool really did (for example
+  `write_file(path='plan.txt') succeeded: wrote 8 chars`). The model's own final answer is **never**
+  stored, because it is a claim, not an observation. The model's `remember` tool cannot write `run`
+  entries, and runs that used no tools are not recorded at all.
 
 Physics view: the ledger stores a compressed *state*, not the full *trajectory*. A superseded
 entry is like a measurement update that makes the old estimate stop contributing.
@@ -86,9 +89,13 @@ These are the lessons from the first live run. They are why the code looks the w
 | `ModuleNotFoundError` / unknown keyword for new code | Stale copy of the package, or not installed in the venv | `pip install -e .` from the repo root; check `python -c "import lattice; print(lattice.__file__)"` |
 | Model said "done" without calling a tool | Small models claim success | `final` must be plain text; prompt says never claim done before a tool confirms; real fix is verification (Step 5) |
 | Model wrote its own `OBSERVATION:` lines and repeated forever | It copied the pattern, and we stored its invented text in history | Store only the parsed action in history; Ollama stop sequence on `OBSERVATION:` |
+| Model answered with made-up names that matched a prompt example | Small models copy examples that sit above retrieved memory | Example uses obviously fake names and is labelled format-only; memory header says to prefer memory over examples |
+| "file" did not find a note about "files" | Plain full-text search treats word variants as different words | FTS5 `porter` stemming; older ledgers are rebuilt automatically |
+| **Memory poisoning**: a wrong answer came back as "evidence" | The system had stored the model's wrong answer as a trusted entry, and it ranked first when the question repeated | Store only observed facts, never model claims. After upgrading, delete old demo ledgers (`.lattice/ledger.db`) because old entries are not cleaned automatically |
 | Request times out | First call is slow, or the GPU stalls | `--cpu`; check `ollama ps`; restart Ollama |
 
-General principle: **trust the system you control, not the model's output.** The real tool
+General principle: **trust the system you control, not the model's output.** This applies to memory too:
+anything that stores what the model *said* and later feeds it back as trusted will poison itself. The real tool
 result said "wrote 2 chars" while the model's invented one said 3. Only the first is evidence.
 
 ## 6. Running and testing
