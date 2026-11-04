@@ -93,4 +93,23 @@ def test_non_string_final_is_rejected_then_retried(tmp_path):
 def test_system_prompt_contains_worked_example():
     from lattice.agent import build_system_prompt
 
-    assert "Example." in build_system_prompt(build_default_tools(Workspace("/tmp/_ws_prompt")))
+    assert "Example conversation" in build_system_prompt(build_default_tools(Workspace("/tmp/_ws_prompt")))
+
+
+def test_history_keeps_only_the_parsed_action(tmp_path):
+    # live failure: model appended an invented OBSERVATION + final after its tool call
+    raw = (act("write_file", path="a.txt", content="hi")
+           + '\nOBSERVATION: wrote 3 chars to a.txt\n{"final": "Created a.txt."}')
+    agent, ws = make(tmp_path, [raw, final("done")])
+    result = agent.run("x")
+    assert result.transcript[2]["content"] == act("write_file", path="a.txt", content="hi")
+    assert "wrote 2 chars" in result.transcript[3]["content"]  # the real observation
+    assert (ws.root / "a.txt").read_text() == "hi" and result.steps == 2
+
+
+def test_ollama_stops_at_observation():
+    from lattice import OllamaBackend
+
+    msgs = [{"role": "user", "content": "hi"}]
+    assert OllamaBackend().build_payload(msgs)["options"]["stop"] == ["OBSERVATION:"]
+    assert "stop" not in OllamaBackend(stop=[]).build_payload(msgs)["options"]

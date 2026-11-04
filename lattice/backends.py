@@ -46,6 +46,7 @@ class OllamaBackend:
         repeat_penalty: float = 1.1,
         num_ctx: int = 4096,
         num_gpu: int | None = None,
+        stop: list[str] | None = None,
     ):
         self.model = model
         self.host = host.rstrip("/")
@@ -59,6 +60,8 @@ class OllamaBackend:
         if num_gpu is None and os.environ.get("LATTICE_NUM_GPU"):
             num_gpu = int(os.environ["LATTICE_NUM_GPU"])
         self.num_gpu = num_gpu
+        # Cut generation if the model starts writing the system's OBSERVATION line itself.
+        self.stop = ["OBSERVATION:"] if stop is None else stop
 
     def build_payload(self, messages: list[Message]) -> dict:
         options = {
@@ -68,6 +71,8 @@ class OllamaBackend:
         }
         if self.num_gpu is not None:
             options["num_gpu"] = self.num_gpu
+        if self.stop:
+            options["stop"] = self.stop
         payload = {"model": self.model, "messages": messages, "stream": False, "options": options}
         if self.json_mode:
             payload["format"] = "json"

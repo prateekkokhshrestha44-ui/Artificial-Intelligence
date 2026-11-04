@@ -46,12 +46,13 @@ def build_system_prompt(tools: dict[str, Tool]) -> str:
         'To use a tool: {"tool": "<name>", "args": {...}}\n'
         'To finish: {"final": "<a short plain-text answer>"}\n'
         "Rules: you cannot do anything except by calling a tool. Never say a task is done "
-        "until a tool result confirms it.\n"
+        "until a tool result confirms it. Send ONE JSON object, then stop and wait: the system "
+        "replies with the OBSERVATION. Never write OBSERVATION yourself.\n"
         f"Available tools:\n{listing}\n\n"
-        "Example. Task: create a.txt containing hello.\n"
-        '{"tool": "write_file", "args": {"path": "a.txt", "content": "hello"}}\n'
-        "OBSERVATION: wrote 5 chars to a.txt\n"
-        '{"final": "Created a.txt."}'
+        "Example conversation for the task 'create a.txt containing hello':\n"
+        'You (turn 1): {"tool": "write_file", "args": {"path": "a.txt", "content": "hello"}}\n'
+        "System: OBSERVATION: wrote 5 chars to a.txt\n"
+        'You (turn 2): {"final": "Created a.txt."}'
     )
 
 
@@ -80,6 +81,10 @@ class Agent:
 
             try:
                 action = extract_action(reply)
+                # Keep only what we actually act on. Small models often append an invented
+                # OBSERVATION and "final" after the action; if we stored that, they would
+                # copy their own hallucination on every later turn.
+                messages[-1] = {"role": "assistant", "content": json.dumps(action)}
             except ValueError as e:
                 messages.append(
                     {"role": "user", "content": f"OBSERVATION: invalid reply ({e}). Send one JSON object."}
