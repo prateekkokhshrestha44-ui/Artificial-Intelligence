@@ -19,6 +19,26 @@ from .tools import Tool, ToolError
 MAX_OBSERVATION_CHARS = 4000  # crude guard against context rot (Phase 4 improves this)
 
 
+def extract_action(reply: str) -> dict:
+    """Pull the first JSON object out of a model reply.
+
+    Small models often wrap JSON in ```json fences, add chatter before it, or
+    append stray characters after it. Be strict about *what* we execute (a
+    dict, validated later) but tolerant about how it is wrapped.
+    """
+    text = reply.strip()
+    start = text.find("{")
+    if start == -1:
+        raise ValueError("no JSON object found")
+    try:
+        obj, _ = json.JSONDecoder().raw_decode(text[start:])
+    except json.JSONDecodeError as e:
+        raise ValueError(f"malformed JSON ({e.msg})") from None
+    if not isinstance(obj, dict):
+        raise ValueError("reply must be a JSON object")
+    return obj
+
+
 def build_system_prompt(tools: dict[str, Tool]) -> str:
     listing = "\n".join(f"- {t.name}: {t.description}" for t in tools.values())
     return (
@@ -53,9 +73,7 @@ class Agent:
             messages.append({"role": "assistant", "content": reply})
 
             try:
-                action = json.loads(reply)
-                if not isinstance(action, dict):
-                    raise ValueError("reply must be a JSON object")
+                action = extract_action(reply)
             except ValueError as e:
                 messages.append(
                     {"role": "user", "content": f"OBSERVATION: invalid reply ({e}). Send one JSON object."}

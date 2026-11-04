@@ -45,6 +45,25 @@ def test_unknown_tool_and_bad_args_are_reported_not_crashed(tmp_path):
     assert "bad arguments" in result.transcript[5]["content"]
 
 
+def test_extract_action_tolerates_fences_chatter_and_trailing_junk():
+    from lattice.agent import extract_action
+
+    assert extract_action('```json\n{"final": "x"}\n```') == {"final": "x"}
+    assert extract_action('Sure! {"final": "x"} hope that helps') == {"final": "x"}
+    assert extract_action('{"final": "x"}}') == {"final": "x"}  # the stray brace seen live
+    for bad in ["", "no json here", "[1, 2]", '{"final": ']:
+        try:
+            extract_action(bad)
+        except ValueError:
+            continue
+        raise AssertionError(f"should have rejected {bad!r}")
+
+
+def test_agent_accepts_fenced_reply(tmp_path):
+    agent, _ = make(tmp_path, ['```json\n{"final": "ok"}\n```'])
+    assert agent.run("x").answer == "ok"
+
+
 def test_step_limit_stops_runaway_loops(tmp_path):
     agent, _ = make(tmp_path, [act("list_files")] * 3, max_steps=3)
     result = agent.run("loop forever")

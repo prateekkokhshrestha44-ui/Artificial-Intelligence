@@ -40,15 +40,27 @@ class OllamaBackend:
         model: str = "qwen2.5-coder:3b",
         host: str = "http://localhost:11434",
         timeout: float = 120.0,
+        json_mode: bool = False,
+        temperature: float = 0.0,
+        num_ctx: int = 4096,
     ):
         self.model = model
         self.host = host.rstrip("/")
         self.timeout = timeout
+        self.json_mode = json_mode  # grammar-constrained JSON; try it once the plain path works
+        self.temperature = temperature  # 0 = deterministic; tool-calling wants low randomness
+        self.num_ctx = num_ctx
 
     def complete(self, messages: list[Message]) -> str:
-        body = json.dumps(
-            {"model": self.model, "messages": messages, "stream": False, "format": "json"}
-        ).encode()
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "stream": False,
+            "options": {"temperature": self.temperature, "num_ctx": self.num_ctx},
+        }
+        if self.json_mode:
+            payload["format"] = "json"
+        body = json.dumps(payload).encode()
         req = urllib.request.Request(
             f"{self.host}/api/chat",
             data=body,
