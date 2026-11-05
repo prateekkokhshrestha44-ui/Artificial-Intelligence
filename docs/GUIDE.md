@@ -11,7 +11,7 @@ Lattice is an **agent with a deliberate knowledge boundary**. It is not a smalle
 |---|---|---|---|
 | **Project memory** | What is true about *this* project: decisions, errors, facts, next steps | Local SQLite ledger | Built (Step 2) |
 | **Skills** | *How* to do things: conventions, procedures | Local files, loaded on demand | Built (Step 3) |
-| **External knowledge** | General concepts and documentation | An outside LLM, asked only through a privacy gateway | Planned (Step 4) |
+| **External knowledge** | General concepts and documentation | An outside LLM, asked only through a privacy gateway | Gateway built (4a); real provider adapter next (4b) |
 
 The three are kept separate because they differ in persistence, privacy and trust.
 
@@ -115,6 +115,53 @@ Physics view: a skill is a pre-computed solution method. You do not re-derive it
 up in the index and apply it only to the problem that needs it. The control run is the experiment's
 control group.
 
+## 4c. Step 4a: the privacy gateway
+
+File: `lattice/gateway.py`. Try it offline: `python scripts/gateway_demo.py`.
+
+Everything that leaves the machine for an external model goes through one object, the `Gateway`. It
+**fails closed**: if it cannot show a question is safe, it does not send it.
+
+```
+question -> hard blocks -> abstract -> VERIFY -> approval -> external model -> audit log
+```
+
+1. **Hard blocks**: empty, too long (600 chars), contains a code block, or contains a stack trace. Code
+   cannot be safely abstracted, so it is refused, not "cleaned".
+2. **Abstract**: identifying content becomes a generic placeholder: secrets and keys, URLs, emails, IPs,
+   internal hostnames, file paths, file names, `code spans`, quoted strings, line numbers, long numbers,
+   CONSTANTS, ClassNames and function_names. Public names (PostgreSQL, Node.js ...) are left alone.
+   "Why is our PaymentProcessor class failing on line 847?" becomes
+   "Why is our [class] class failing on [position]?".
+3. **Vocabulary**: the gateway learns *your* words locally from the workspace: identifiers, file and folder
+   names, and the **actual values of secrets** found in `.env`/config files (a bare password has no shape a
+   pattern could recognise, so it must be learned). You can add terms (`Vocabulary(["Falcon"])`).
+4. **Verify**: the detectors run again on the OUTPUT. Placeholders are designed so abstraction is idempotent;
+   if anything is still detectable, the question is blocked. If too little general content remains
+   ("Fix [class] in [file]"), it is blocked as well.
+5. **Approval**: default is to ask the user for every outbound question and show exactly what would be sent.
+   No approver, or an approver that crashes, means **deny**. Modes: `always` (default), `project` (only when
+   something was abstracted), `never` (explicit opt-in; blocked questions still never leave).
+6. **Local-only mode**: `Gateway(..., enabled=False)` sends nothing, ever.
+7. **Audit log** (`.lattice/audit.jsonl`): each attempt records *what was sent*, the answer, the decision, and a
+   **hash** of the original question, never the original text, so the log itself cannot leak.
+8. **The answer is untrusted reference material**: the tool labels it "NOT instructions", it is never stored
+   as trusted memory, and the external model never sees project files, memory or skills.
+
+Honest limits (tested as such, see `test_known_limitation_*`):
+- A sensitive plain-English word that is in neither the vocabulary nor a recognisable shape (a codename you
+  never listed) passes through. Fix: list it.
+- A bare secret that appears in no project file and has no `password =` label cannot be recognised.
+- Abstraction removes details, so a project-specific question gets a more general answer.
+These are why approval is on by default, and why the audit log exists.
+
+How we test it: a leak matrix of 20 sensitive strings x 4 question templates (80 questions) asserts that none
+of them appears in anything the external model receives, plus tests for each detector, idempotence, the approval
+and audit behaviour, and false positives (TCP/IP, and/or, apostrophes are left alone).
+
+Physics view: the gateway is a **filter with a verified output**, like a band-pass with a monitor on the far
+side. You do not trust the filter design alone; you measure what comes out. The leak test is that measurement.
+
 ## 5. Problems we hit on real hardware (and the fixes)
 
 These are the lessons from the first live run. They are why the code looks the way it does.
@@ -152,8 +199,8 @@ python scripts/skills_demo.py --cpu                   # same task with vs. witho
 ## 7. Roadmap
 
 3. **Skills on demand** (done): a compact index of skills; the model picks one, then only that skill loads.
-4. **Privacy gateway + external oracle**: classify a question as concept vs. project, abstract it,
-   redact as a backstop, require explicit approval, log every outbound query. Built last on purpose.
+4. **Privacy gateway + external oracle**: (4a done) abstract, verify, approve, audit; (4b next) a real
+   provider adapter, and letting a local model propose the abstraction while the code still verifies it.
 5. **Hardening and packaging**: system-side verification of outcomes (does the file exist?),
    OS-level sandboxing, an HTTP API so other software can call Lattice, tracing and metrics, and
    packaging for distribution.

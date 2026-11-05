@@ -6,7 +6,7 @@ machine; external LLMs are a read-only knowledge oracle, queried only through a 
 > **New here? Read [docs/GUIDE.md](docs/GUIDE.md)** -- it explains every part, the design rules, and the
 > real problems we hit on live hardware (and their fixes).
 
-## Status: Steps 1-3 done (local loop + project memory + skills)
+## Status: Steps 1-4a done (local loop, project memory, skills, privacy gateway)
 
 ```
 lattice/
@@ -15,13 +15,14 @@ lattice/
   agent.py      # the observe -> think -> act loop (+ optional ledger)
   memory.py     # SQLite project-memory ledger: typed, provenance, supersede, FTS search
   skills.py     # skills on demand: compact index + use_skill tool (progressive disclosure)
+  gateway.py    # privacy gateway: abstract -> verify -> approve -> audit -> external model
 skills/         # example skills (note-taking, commit-message)
 tests/
-  test_agent.py, test_memory.py, test_skills.py
+  test_agent.py, test_memory.py, test_skills.py, test_gateway.py
 docs/
   GUIDE.md      # architecture, concepts, troubleshooting, roadmap
 scripts/
-  live_demo.py, memory_demo.py, skills_demo.py, ollama_check.py, ollama_matrix.py
+  live_demo.py, memory_demo.py, skills_demo.py, gateway_demo.py, ollama_check.py, ollama_matrix.py
 ```
 
 ## Run the tests (no model needed)
@@ -42,7 +43,7 @@ print(Agent(OllamaBackend(), tools).run('Create hello.txt containing the word hi
 ```
 
 ## Roadmap
-1. Local loop (done)  2. Project memory ledger (done)  3. Skills on demand (done)
+1. Local loop (done)  2. Project memory ledger (done)  3. Skills on demand (done)  4a. Privacy gateway (done)
 4. Privacy gateway + external oracle  5. Hardening, HTTP API, packaging
 
 ## Project memory (Step 2)
@@ -64,3 +65,14 @@ agent = Agent(OllamaBackend(), build_default_tools(Workspace("./workspace")), sk
 ```
 
 Live experiment: `python scripts/skills_demo.py --cpu` runs one task with and without a skill and verifies the result.
+
+## Privacy gateway (Step 4a)
+
+```python
+from lattice import Gateway, Vocabulary, FakeOracle, build_oracle_tool
+vocab = Vocabulary.from_workspace("./workspace", extra=["Falcon"])     # learns your identifiers and secret values
+gateway = Gateway(FakeOracle(), vocab, approver=my_approve_function)    # swap FakeOracle for a real provider later
+tools = {**build_default_tools(ws), **build_oracle_tool(gateway)}       # gives the agent an ask_external tool
+```
+
+See what would leave your machine, offline: `python scripts/gateway_demo.py`.
