@@ -21,6 +21,9 @@ while i < len(argv):
         terms.append(argv[i + 1]); i += 2
     elif argv[i] == "--interactive":
         interactive, i = True, i + 1
+    elif argv[i].startswith("--"):
+        sys.exit(f"unknown option {argv[i]!r}. Options: --workspace PATH, --term WORD, --interactive "
+                 "(this demo never uses a model, so there is no --cpu)")
     else:
         questions.append(argv[i]); i += 1
 
