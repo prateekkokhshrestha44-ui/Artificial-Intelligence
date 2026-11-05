@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 
 from .backends import Message, ModelBackend
 from .memory import Ledger, format_memory_block
+from .skills import SkillRegistry, build_skill_tool, format_skill_index
 from .tools import Tool, ToolError
 
 MAX_OBSERVATION_CHARS = 4000  # crude guard against context rot (Phase 4 improves this)
@@ -76,9 +77,15 @@ class Agent:
         max_steps: int = 8,
         ledger: Ledger | None = None,
         memory_limit: int = 5,
+        skills: SkillRegistry | None = None,
+        skill_index_limit: int = 8,
     ):
         self.backend = backend
-        self.tools = tools
+        self.tools = dict(tools)  # copy: never mutate the caller's dict
+        self.skills = skills
+        self.skill_index_limit = skill_index_limit
+        if skills is not None:
+            self.tools["use_skill"] = build_skill_tool(skills)
         self.max_steps = max_steps
         self.ledger = ledger
         self.memory_limit = memory_limit
@@ -86,6 +93,9 @@ class Agent:
     def run(self, task: str) -> AgentResult:
         system = build_system_prompt(self.tools)
         task_id = uuid.uuid4().hex[:8]
+        if self.skills is not None:
+            # An index of descriptions only; full skill text loads later, via the use_skill tool.
+            system += format_skill_index(self.skills.suggest(task, limit=self.skill_index_limit))
         if self.ledger is not None:
             # Retrieve only what is relevant to THIS task -- never the whole ledger.
             system += format_memory_block(self.ledger.search(task, limit=self.memory_limit))

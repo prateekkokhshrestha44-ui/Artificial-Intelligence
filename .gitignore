@@ -12,3 +12,4 @@ workspace/
 .lattice/
 *.patch
 *.bundle
+workspace_*/

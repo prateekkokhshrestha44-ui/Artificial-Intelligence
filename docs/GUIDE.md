@@ -10,7 +10,7 @@ Lattice is an **agent with a deliberate knowledge boundary**. It is not a smalle
 | Store | Holds | Lives | Status |
 |---|---|---|---|
 | **Project memory** | What is true about *this* project: decisions, errors, facts, next steps | Local SQLite ledger | Built (Step 2) |
-| **Skills** | *How* to do things: conventions, procedures | Local files, loaded on demand | Planned (Step 3) |
+| **Skills** | *How* to do things: conventions, procedures | Local files, loaded on demand | Built (Step 3) |
 | **External knowledge** | General concepts and documentation | An outside LLM, asked only through a privacy gateway | Planned (Step 4) |
 
 The three are kept separate because they differ in persistence, privacy and trust.
@@ -78,6 +78,43 @@ entry is like a measurement update that makes the old estimate stop contributing
 
 Keep the ledger file **outside** the workspace (`./.lattice/`), so the agent's tools cannot reach it.
 
+## 4b. Step 3: skills on demand
+
+File: `lattice/skills.py`. Example skills: `skills/`.
+
+A skill is a folder with a `SKILL.md`: a name, a one-line description, and the full instructions.
+
+```
+skills/note-taking/SKILL.md
+---
+name: note-taking
+description: How to write project notes: where to save them, ... Use when asked to write a note.
+---
+1. Save the note inside the `notes/` folder. ...
+```
+
+- **Progressive disclosure**: the prompt carries only an *index* (name + description). If the task
+  needs a skill, the model calls the `use_skill` tool and the full text arrives as the tool result.
+  Prompt size stays small no matter how many skills exist.
+- **The index does not grow with the library**: with few skills all are listed; with many, only the
+  best matches for the task are (`suggest`, default limit 8).
+- **Bad skills are skipped, not fatal**: wrong name, missing description, oversized body, or a symlink
+  pointing outside the skills folder is recorded in `registry.problems` and ignored.
+- **Pluggable source**: the agent depends on a small `SkillRegistry` interface, so skills could later
+  come from a shared service with the same checks.
+- **Trust**: skill text is delivered as instructions to follow, so load skills only from folders you
+  control. This is the opposite of memory, which is always labelled as evidence.
+
+Skills vs memory: memory says *what is true here* (a fact that can go stale and is superseded); a skill
+says *how we do things here* (a procedure that is edited on purpose).
+
+How we test it: `scripts/skills_demo.py` runs the same task with and without the skill, then checks the
+result with plain code (right path, right title line) instead of trusting the model's "done".
+
+Physics view: a skill is a pre-computed solution method. You do not re-derive it each time; you look it
+up in the index and apply it only to the problem that needs it. The control run is the experiment's
+control group.
+
 ## 5. Problems we hit on real hardware (and the fixes)
 
 These are the lessons from the first live run. They are why the code looks the way it does.
@@ -107,13 +144,14 @@ pytest                                                # no model needed
 ollama pull qwen2.5-coder:3b
 python scripts/live_demo.py --cpu                     # real model, real tools
 python scripts/memory_demo.py --cpu                   # memory across two runs
+python scripts/skills_demo.py --cpu                   # same task with vs. without a skill
 ```
 
 `--cpu` is only for machines where the GPU path is flaky.
 
 ## 7. Roadmap
 
-3. **Skills on demand**: a compact index of skills; the model picks one, then only that skill loads.
+3. **Skills on demand** (done): a compact index of skills; the model picks one, then only that skill loads.
 4. **Privacy gateway + external oracle**: classify a question as concept vs. project, abstract it,
    redact as a backstop, require explicit approval, log every outbound query. Built last on purpose.
 5. **Hardening and packaging**: system-side verification of outcomes (does the file exist?),
