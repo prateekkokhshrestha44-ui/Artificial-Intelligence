@@ -137,3 +137,31 @@ def test_hostile_rewriter_cannot_smuggle_any_sensitive_string_out(tmp_path, secr
     for sent in oracle.received:
         assert secret.lower() not in sent.lower(), f"{secret!r} smuggled out via the rewriter: {sent!r}"
     assert oracle.received == [plain]            # the hostile text was rejected; plain abstraction went out
+
+
+# ---- the gateway says WHY a rewrite was not used, without ever repeating the rejected text -----------
+@pytest.mark.parametrize("output, expected", [
+    (ConnectionError("down"), "model call failed (ConnectionError)"),
+    ("", "empty or too short"),
+    ("x " * 300, "far longer"),
+    ("Why does a class fail on retries?\n```c x```", "code or a stack trace"),
+    ("Why does charge_card fail on retries?", "identifying content (identifier)"),
+    (["not text"], "not text"),
+])
+def test_rejection_notes_explain_the_kind_of_problem(output, expected):
+    o = gw(StubRewriter(output)).prepare(Q)
+    notes = [r for r in o.reasons if r.startswith("local rewrite not used")]
+    assert len(notes) == 1 and expected in notes[0]
+
+
+def test_rejection_notes_never_contain_the_rejected_text():
+    leaky = "Why does PaymentProcessor in billing.py fail with sk-live-abcdef1234567890abcd?"
+    o = gw(StubRewriter(leaky)).prepare(Q)
+    joined = " ".join(o.reasons)
+    for piece in ("PaymentProcessor", "billing.py", "sk-live"):
+        assert piece not in joined
+
+
+def test_no_note_when_the_model_simply_returns_the_text_unchanged_or_when_accepted():
+    assert not [r for r in gw(StubRewriter(ABSTRACTED)).prepare(Q).reasons if "not used" in r]
+    assert not [r for r in gw(StubRewriter("Why might a class fail on retries?")).prepare(Q).reasons if "not used" in r]

@@ -175,7 +175,9 @@ The rule that makes this safe: **the rewriter is never trusted, only checked.**
   and is also rejected if empty, too short, much longer than the input, or containing code or a stack trace.
 - If it fails any check, or the local model is down, the plain abstracted text is used instead. A rewriter
   can improve a question but can never make one leak.
-- Whether a rewrite happened is shown to the approver and recorded in the audit log.
+- Whether a rewrite happened is shown to the approver and recorded in the audit log. When a rewrite is NOT
+  used, `reasons` says why (model call failed / reply empty / too long / contained code / contained identifying
+  content), naming only the kind of problem, never the rejected text.
 
 How we test it: a *hostile rewriter* that deliberately tries to put each of the 20 sensitive strings back in
 is run through the gateway; none gets out. We also ran a mutation check: with the re-verification step

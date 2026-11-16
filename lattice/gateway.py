@@ -362,29 +362,36 @@ class Gateway:
         reasons = [f"removed {n} {cat} item(s)" for cat, n in sorted(counts.items())]
         rewritten = False
         if self.rewriter is not None:
-            better = self._try_rewrite(text)
+            better, note = self._try_rewrite(text)
+            if note:
+                reasons.append(note)
             if better is not None and better != text:
                 text, rewritten = better, True
                 reasons.append("reworded by the local model and re-verified")
         return Outbound("abstracted", text, digest, counts, reasons, rewritten)
 
-    def _try_rewrite(self, abstracted: str) -> str | None:
+    def _try_rewrite(self, abstracted: str) -> tuple[str | None, str | None]:
         """Ask the rewriter for a better wording. The rewriter is NOT trusted: its output must pass the same
-        checks as everything else, otherwise we return None and the caller keeps the plain abstracted text."""
+        checks as everything else. Returns (candidate or None, a note saying why it was not used).
+        Notes name the KIND of problem only, never the rejected text, so they cannot leak anything."""
+        prefix = "local rewrite not used: "
         try:
             candidate = self.rewriter.rewrite(abstracted)
-        except Exception:
-            return None
+        except Exception as e:
+            return None, f"{prefix}the local model call failed ({type(e).__name__})"
         if not isinstance(candidate, str):
-            return None
+            return None, f"{prefix}the model returned something that was not text"
         candidate = " ".join(candidate.split())
-        if len(candidate.split()) < 3 or len(candidate) > min(self.max_chars, 2 * len(abstracted) + 80):
-            return None                                   # empty, too short, or ballooned
+        if len(candidate.split()) < 3:
+            return None, f"{prefix}the reply was empty or too short"
+        if len(candidate) > min(self.max_chars, 2 * len(abstracted) + 80):
+            return None, f"{prefix}the reply was far longer than the question"
         if "```" in candidate or _TRACEBACK.search(candidate):
-            return None
-        if self.abstractor.abstract(candidate)[1]:        # anything identifying (new or old) => reject
-            return None
-        return candidate
+            return None, f"{prefix}the reply contained code or a stack trace"
+        found = self.abstractor.abstract(candidate)[1]
+        if found:                                         # anything identifying (new or old) => reject
+            return None, f"{prefix}the reply contained identifying content ({', '.join(sorted(found))})"
+        return candidate, None
 
     # -- the full flow ----------------------------------------------------------------------
     def ask(self, question: str) -> GatewayResult:

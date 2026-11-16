@@ -34,7 +34,24 @@ SAMPLES = [
 ]
 
 vocab = Vocabulary.from_workspace(workspace, extra=terms) if workspace else Vocabulary(terms)
-backend = OllamaBackend(model=model, num_gpu=0 if cpu else None)
+
+
+class Recording:
+    """Wraps the backend so this demo can show what the local model actually said (or why it failed)."""
+
+    def __init__(self, inner):
+        self.inner, self.last = inner, None
+
+    def complete(self, messages):
+        try:
+            self.last = self.inner.complete(messages)
+        except Exception as e:
+            self.last = f"<error {type(e).__name__}: {e}>"
+            raise
+        return self.last
+
+
+backend = Recording(OllamaBackend(model=model, num_gpu=0 if cpu else None))
 plain = Gateway(FakeOracle(), vocab)
 reworded = Gateway(FakeOracle(), vocab, rewriter=LocalRewriter(backend))
 
@@ -43,4 +60,9 @@ for q in questions or SAMPLES:
     print(f"\nORIGINAL  : {q}")
     print(f"ABSTRACTED: {a.text or '(blocked: ' + '; '.join(a.reasons) + ')'}")
     if b.decision == "abstracted":
-        print(f"REWRITTEN : {b.text}" if b.rewritten else "REWRITTEN : (rewrite rejected, unchanged, or model unavailable; the abstracted text above would be used)")
+        print(f"MODEL SAID: {backend.last!r}")
+        if b.rewritten:
+            print(f"REWRITTEN : {b.text}")
+        else:
+            why = [r for r in b.reasons if r.startswith("local rewrite not used")]
+            print("REWRITTEN : (not used) " + (why[0] if why else "the model returned the text unchanged"))
