@@ -183,6 +183,12 @@ How we test it: a *hostile rewriter* that deliberately tries to put each of the 
 is run through the gateway; none gets out. We also ran a mutation check: with the re-verification step
 removed, 27 tests fail, so the tests genuinely depend on the check.
 
+First real measurement (qwen2.5-coder:3b, 3 questions): 1 helpful rewrite (replaced a placeholder with "a
+function"), 1 neutral, 1 harmful (turned "why is our class failing?" into "what error message is shown?",
+a question for the user, not an expert). Nothing leaked in any case. The mechanical sign of the two weak ones
+was that they kept the `[placeholders]`, so rewrites that do are now rejected. Treat rewriting as OPT-IN with
+a small model, and keep approval on.
+
 Known limit: **semantic drift**. A small model may reword the question into a slightly different one ("fail
 intermittently under load" when the user never said so). The detectors cannot judge meaning, so the approval
 step, which shows the exact text, is what catches this.

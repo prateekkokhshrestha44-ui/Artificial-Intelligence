@@ -165,3 +165,33 @@ def test_rejection_notes_never_contain_the_rejected_text():
 def test_no_note_when_the_model_simply_returns_the_text_unchanged_or_when_accepted():
     assert not [r for r in gw(StubRewriter(ABSTRACTED)).prepare(Q).reasons if "not used" in r]
     assert not [r for r in gw(StubRewriter("Why might a class fail on retries?")).prepare(Q).reasons if "not used" in r]
+
+
+# ---- regression tests built from the FIRST REAL RUN of a 3B local model (qwen2.5-coder:3b) ------------
+LIVE = {
+    "Why is our PaymentProcessor class failing on line 847?":
+        ("What specific error message is being displayed when your [class] class fails at [position]?", False),   # harmful drift
+    "Why does charge_customer_card in billing/payments.py return None?":
+        ("Why is [identifier] returning None in [path]?", False),                                                  # no gain
+    "How do I make retry_failed_orders idempotent when the queue redelivers messages?":
+        ("To ensure that a function is idempotent in a system where messages might be redelivered, how can I handle this scenario effectively?", True),
+}
+
+
+@pytest.mark.parametrize("question, reply_and_ok", list(LIVE.items()))
+def test_real_model_replies_are_judged_as_expected(question, reply_and_ok):
+    reply, accepted = reply_and_ok
+    o = gw(StubRewriter(reply)).prepare(question)
+    assert o.rewritten is accepted
+    if accepted:
+        assert o.text == reply
+    else:
+        assert "[" in o.text                                                   # plain abstraction was used instead
+        assert any("kept [placeholders]" in r for r in o.reasons)
+
+
+def test_prompt_tells_the_model_to_replace_placeholders_and_not_ask_questions_back():
+    from lattice.gateway import _REWRITE_SYSTEM
+
+    assert "Replace EVERY placeholder" in _REWRITE_SYSTEM and "no square brackets" in _REWRITE_SYSTEM
+    assert "Do not ask the user for more information" in _REWRITE_SYSTEM

@@ -229,10 +229,13 @@ _REWRITE_SYSTEM = (
     "You rewrite a question so it can be asked to an outside expert who knows nothing about the asker's project.\n"
     "Rules:\n"
     "1. Output ONE sentence: a general concept question, and nothing else.\n"
-    "2. Bracketed placeholders such as [class], [file], [identifier], [path] stand for unknown things. Refer to them "
-    "generically ('a class', 'a file', 'a function'). Never invent names, numbers, paths or other details.\n"
+    "2. Bracketed placeholders such as [class], [file], [identifier], [path] stand for unknown things. Replace EVERY "
+    "placeholder with a generic phrase ('a class', 'a file', 'a function'). The answer must contain no square "
+    "brackets. Never invent names, numbers, paths or other details.\n"
     "3. Keep the technical subject (the language, library or concept) exactly as asked.\n"
-    "4. If you are unsure, repeat the question unchanged."
+    "4. Do not ask the user for more information. The result must be a self-contained question that an expert "
+    "could answer exactly as written.\n"
+    "5. If you are unsure, repeat the question unchanged."
 )
 
 
@@ -382,12 +385,16 @@ class Gateway:
         if not isinstance(candidate, str):
             return None, f"{prefix}the model returned something that was not text"
         candidate = " ".join(candidate.split())
+        if candidate == abstracted:
+            return None, None                              # unchanged: neutral, nothing to report
         if len(candidate.split()) < 3:
             return None, f"{prefix}the reply was empty or too short"
         if len(candidate) > min(self.max_chars, 2 * len(abstracted) + 80):
             return None, f"{prefix}the reply was far longer than the question"
         if "```" in candidate or _TRACEBACK.search(candidate):
             return None, f"{prefix}the reply contained code or a stack trace"
+        if _PLACEHOLDER.search(candidate):                 # the point of rewriting is to replace placeholders
+            return None, f"{prefix}the reply kept [placeholders] instead of using generic words"
         found = self.abstractor.abstract(candidate)[1]
         if found:                                         # anything identifying (new or old) => reject
             return None, f"{prefix}the reply contained identifying content ({', '.join(sorted(found))})"
