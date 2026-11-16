@@ -6,7 +6,7 @@ machine; external LLMs are a read-only knowledge oracle, queried only through a 
 > **New here? Read [docs/GUIDE.md](docs/GUIDE.md)** -- it explains every part, the design rules, and the
 > real problems we hit on live hardware (and their fixes).
 
-## Status: Steps 1-4a done (local loop, project memory, skills, privacy gateway)
+## Status: Steps 1-4b done (local loop, project memory, skills, privacy gateway with verified local rewriting)
 
 ```
 lattice/
@@ -18,11 +18,11 @@ lattice/
   gateway.py    # privacy gateway: abstract -> verify -> approve -> audit -> external model
 skills/         # example skills (note-taking, commit-message)
 tests/
-  test_agent.py, test_memory.py, test_skills.py, test_gateway.py
+  test_agent.py, test_memory.py, test_skills.py, test_gateway.py, test_rewriter.py
 docs/
   GUIDE.md      # architecture, concepts, troubleshooting, roadmap
 scripts/
-  live_demo.py, memory_demo.py, skills_demo.py, gateway_demo.py, ollama_check.py, ollama_matrix.py
+  live_demo.py, memory_demo.py, skills_demo.py, gateway_demo.py, rewrite_demo.py, ollama_check.py, ollama_matrix.py
 ```
 
 ## Run the tests (no model needed)
@@ -43,7 +43,7 @@ print(Agent(OllamaBackend(), tools).run('Create hello.txt containing the word hi
 ```
 
 ## Roadmap
-1. Local loop (done)  2. Project memory ledger (done)  3. Skills on demand (done)  4a. Privacy gateway (done)
+1. Local loop (done)  2. Project memory ledger (done)  3. Skills on demand (done)  4a. Privacy gateway (done)  4b. Verified local rewriting (done)
 4. Privacy gateway + external oracle  5. Hardening, HTTP API, packaging
 
 ## Project memory (Step 2)

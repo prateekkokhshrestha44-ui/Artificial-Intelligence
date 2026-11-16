@@ -28,6 +28,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterable, Protocol
 
+from .backends import ModelBackend
 from .tools import Tool, ToolError
 
 # ---- public names that look like identifiers but are safe to say out loud ----------------
@@ -206,6 +207,7 @@ class Outbound:
     question_sha256: str
     findings: dict = field(default_factory=dict)   # category -> how many were removed
     reasons: list = field(default_factory=list)    # human-readable, NEVER contains the original content
+    rewritten: bool = False       # True if a local model improved the abstracted text and it passed re-verification
 
 
 @dataclass(frozen=True)
@@ -214,6 +216,46 @@ class GatewayResult:
     outbound: Outbound | None = None
     answer: str = ""
     detail: str = ""
+
+
+class Rewriter(Protocol):
+    """Proposes a cleaner, more general wording of an ALREADY-ABSTRACTED question. Never trusted: the gateway
+    re-verifies whatever it returns, and falls back to the plain abstracted text if it fails."""
+
+    def rewrite(self, text: str) -> str: ...
+
+
+_REWRITE_SYSTEM = (
+    "You rewrite a question so it can be asked to an outside expert who knows nothing about the asker's project.\n"
+    "Rules:\n"
+    "1. Output ONE sentence: a general concept question, and nothing else.\n"
+    "2. Bracketed placeholders such as [class], [file], [identifier], [path] stand for unknown things. Refer to them "
+    "generically ('a class', 'a file', 'a function'). Never invent names, numbers, paths or other details.\n"
+    "3. Keep the technical subject (the language, library or concept) exactly as asked.\n"
+    "4. If you are unsure, repeat the question unchanged."
+)
+
+
+def _clean_rewrite(reply: str) -> str:
+    """Models add chatter; keep only the first non-empty line, minus labels and quote marks."""
+    for line in reply.splitlines():
+        line = line.strip()
+        if line:
+            line = re.sub(r"(?i)^(?:rewritten\s+)?question\s*:\s*", "", line)
+            return line.strip(" \t\"'`")
+    return ""
+
+
+class LocalRewriter:
+    """Uses a LOCAL model (any ModelBackend, e.g. Ollama) to reword abstracted text. It only ever sees the
+    abstracted text, never the original question."""
+
+    def __init__(self, backend: ModelBackend):
+        self.backend = backend
+
+    def rewrite(self, text: str) -> str:
+        reply = self.backend.complete([{"role": "system", "content": _REWRITE_SYSTEM}, {"role": "user", "content": text}])
+        return _clean_rewrite(reply)
 
 
 class Oracle(Protocol):
@@ -256,7 +298,8 @@ Approver = Callable[[Outbound], bool]
 def console_approver(outbound: Outbound) -> bool:
     """Ask the human at the terminal. Shows exactly what would leave the machine."""
     print("\n--- The agent wants to send this to an EXTERNAL model ---")
-    print(f"  decision: {outbound.decision}   removed: {outbound.findings or 'nothing'}")
+    print(f"  decision: {outbound.decision}   removed: {outbound.findings or 'nothing'}   "
+          f"reworded by local model: {'yes' if outbound.rewritten else 'no'}")
     print(f"  text    : {outbound.text}")
     return input("  Send it? [y/N] ").strip().lower() in {"y", "yes"}
 
@@ -272,6 +315,7 @@ class Gateway:
         approval: str = "always",          # "always" | "project" (only when something was abstracted) | "never"
         max_chars: int = MAX_QUESTION_CHARS,
         public_terms: Iterable[str] = (),
+        rewriter: Rewriter | None = None,
     ):
         if approval not in {"always", "project", "never"}:
             raise ValueError("approval must be 'always', 'project' or 'never'")
@@ -283,6 +327,7 @@ class Gateway:
         self.enabled = enabled            # False = "local only" mode: nothing ever leaves
         self.approval = approval
         self.max_chars = max_chars
+        self.rewriter = rewriter
 
     # -- pure: no network, no side effects --------------------------------------------------
     def prepare(self, question: str) -> Outbound:
@@ -315,7 +360,31 @@ class Gateway:
         if not counts:
             return Outbound("allow", text, digest, {}, [])
         reasons = [f"removed {n} {cat} item(s)" for cat, n in sorted(counts.items())]
-        return Outbound("abstracted", text, digest, counts, reasons)
+        rewritten = False
+        if self.rewriter is not None:
+            better = self._try_rewrite(text)
+            if better is not None and better != text:
+                text, rewritten = better, True
+                reasons.append("reworded by the local model and re-verified")
+        return Outbound("abstracted", text, digest, counts, reasons, rewritten)
+
+    def _try_rewrite(self, abstracted: str) -> str | None:
+        """Ask the rewriter for a better wording. The rewriter is NOT trusted: its output must pass the same
+        checks as everything else, otherwise we return None and the caller keeps the plain abstracted text."""
+        try:
+            candidate = self.rewriter.rewrite(abstracted)
+        except Exception:
+            return None
+        if not isinstance(candidate, str):
+            return None
+        candidate = " ".join(candidate.split())
+        if len(candidate.split()) < 3 or len(candidate) > min(self.max_chars, 2 * len(abstracted) + 80):
+            return None                                   # empty, too short, or ballooned
+        if "```" in candidate or _TRACEBACK.search(candidate):
+            return None
+        if self.abstractor.abstract(candidate)[1]:        # anything identifying (new or old) => reject
+            return None
+        return candidate
 
     # -- the full flow ----------------------------------------------------------------------
     def ask(self, question: str) -> GatewayResult:
@@ -325,7 +394,7 @@ class Gateway:
             return GatewayResult("disabled", detail="local-only mode: external queries are off")
 
         out = self.prepare(question)
-        base = dict(event="external_query", question_sha256=digest, question_chars=len(question), decision=out.decision, findings=out.findings)
+        base = dict(event="external_query", question_sha256=digest, question_chars=len(question), decision=out.decision, findings=out.findings, rewritten=out.rewritten)
         if out.decision == "blocked":
             self.audit.write(status="blocked", reasons=out.reasons, **base)
             return GatewayResult("blocked", out, detail="; ".join(out.reasons))

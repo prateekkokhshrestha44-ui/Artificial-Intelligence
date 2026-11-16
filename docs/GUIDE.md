@@ -163,6 +163,28 @@ and audit behaviour, and false positives (TCP/IP, and/or, apostrophes are left a
 Physics view: the gateway is a **filter with a verified output**, like a band-pass with a monitor on the far
 side. You do not trust the filter design alone; you measure what comes out. The leak test is that measurement.
 
+### 4d. Step 4b: verified local rewriting
+
+Plain abstraction is safe but blunt ("Why is our [class] class failing on [position]?"). A local model can
+reword that into a better general question. `Gateway(..., rewriter=LocalRewriter(OllamaBackend()))`.
+Try it: `python scripts/rewrite_demo.py --cpu`.
+
+The rule that makes this safe: **the rewriter is never trusted, only checked.**
+- It sees only the already-abstracted text, never the original question.
+- Its output goes through the same detectors as everything else (identifiers, paths, secrets, vocabulary ...),
+  and is also rejected if empty, too short, much longer than the input, or containing code or a stack trace.
+- If it fails any check, or the local model is down, the plain abstracted text is used instead. A rewriter
+  can improve a question but can never make one leak.
+- Whether a rewrite happened is shown to the approver and recorded in the audit log.
+
+How we test it: a *hostile rewriter* that deliberately tries to put each of the 20 sensitive strings back in
+is run through the gateway; none gets out. We also ran a mutation check: with the re-verification step
+removed, 27 tests fail, so the tests genuinely depend on the check.
+
+Known limit: **semantic drift**. A small model may reword the question into a slightly different one ("fail
+intermittently under load" when the user never said so). The detectors cannot judge meaning, so the approval
+step, which shows the exact text, is what catches this.
+
 ## 5. Problems we hit on real hardware (and the fixes)
 
 These are the lessons from the first live run. They are why the code looks the way it does.
@@ -200,8 +222,8 @@ python scripts/skills_demo.py --cpu                   # same task with vs. witho
 ## 7. Roadmap
 
 3. **Skills on demand** (done): a compact index of skills; the model picks one, then only that skill loads.
-4. **Privacy gateway + external oracle**: (4a done) abstract, verify, approve, audit; (4b next) a real
-   provider adapter, and letting a local model propose the abstraction while the code still verifies it.
+4. **Privacy gateway + external oracle**: (4a done) abstract, verify, approve, audit; (4b done) a local model may reword the question while the
+   code re-verifies it; (4c next) a real external provider adapter.
 5. **Hardening and packaging**: system-side verification of outcomes (does the file exist?),
    OS-level sandboxing, an HTTP API so other software can call Lattice, tracing and metrics, and
    packaging for distribution.
