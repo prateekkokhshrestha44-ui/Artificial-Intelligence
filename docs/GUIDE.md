@@ -133,8 +133,9 @@ question -> hard blocks -> abstract -> VERIFY -> approval -> external model -> a
    CONSTANTS, ClassNames and function_names. Public names (PostgreSQL, Node.js ...) are left alone.
    "Why is our PaymentProcessor class failing on line 847?" becomes
    "Why is our [class] class failing on [position]?".
-3. **Vocabulary**: the gateway learns *your* words locally from the workspace: identifiers, file and folder
-   names, and the **actual values of secrets** found in `.env`/config files (a bare password has no shape a
+3. **Vocabulary**: the gateway learns *your* words locally from the workspace: identifiers, identifier-like
+   file and folder names (not plain words like `plan` or `billing`, which would make ordinary questions look
+   private; list those yourself if they are), and the **actual values of secrets** found in `.env`/config files (a bare password has no shape a
    pattern could recognise, so it must be learned). You can add terms (`Vocabulary(["Falcon"])`).
 4. **Verify**: the detectors run again on the OUTPUT. Placeholders are designed so abstraction is idempotent;
    if anything is still detectable, the question is blocked. If too little general content remains

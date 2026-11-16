@@ -83,10 +83,27 @@ def make_project(root):
 
 def test_vocabulary_learns_project_terms_but_not_noise(tmp_path):
     v = Vocabulary.from_workspace(make_project(tmp_path / "proj"))
-    for term in ("PaymentProcessor", "charge_customer_card", "card_token", "refundOrderItems", "STRIPE_WEBHOOK_SECRET", "billing", "settings"):
+    for term in ("PaymentProcessor", "charge_customer_card", "card_token", "refundOrderItems", "STRIPE_WEBHOOK_SECRET",
+                 "payment_processor", "payment_processor.py", "settings.yaml"):
         assert term in v, term
+    assert "billing" not in v and "settings" not in v    # plain English folder/file words are NOT learned
     assert "shouldneverbelearned" not in v          # skipped directory
     assert "src" not in v and "helper" not in v     # common folder / plain word, not an identifier
+
+
+def test_plain_word_file_names_do_not_make_ordinary_questions_look_private(tmp_path):
+    """Regression: plan.txt and hello.txt once turned 'plan' and 'hello' into private terms."""
+    root = tmp_path / "ws"
+    root.mkdir()
+    (root / "plan.txt").write_text("step one")
+    (root / "hello.txt").write_text("hi")
+    (root / "kickoff-meeting.md").write_text("# Kickoff")
+    g = Gateway(FakeOracle(), Vocabulary.from_workspace(root))
+    for q in ("How do I plan a software release?", "Write a hello world program in Go"):
+        assert g.prepare(q).decision == "allow" and g.prepare(q).text == q
+    assert "kickoff-meeting" in g.vocabulary         # identifier-like names ARE learned
+    assert "plan" not in g.prepare("Why does plan.txt fail?").text  # but the file NAME itself is still removed
+    assert "plan.txt" not in g.prepare("Why does plan.txt fail?").text
 
 
 def test_vocabulary_learns_real_secret_values_from_env_and_config_files(tmp_path):

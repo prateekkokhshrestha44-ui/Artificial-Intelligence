@@ -91,6 +91,13 @@ _SECRET_ASSIGN = re.compile(
 _NOT_SECRET_VALUES = {"true", "false", "none", "null", "yes", "no", "changeme", "example", "string", "required", "optional"}
 
 
+def _looks_like_identifier(name: str) -> bool:
+    """True for names like payment_processor, kickoff-meeting, Report2024, PaymentProcessor.
+    A plain lowercase word such as 'plan' or 'billing' is ordinary English: learning it would make every
+    question that uses the word look private. List such words yourself (extra_terms) if they ARE private."""
+    return "_" in name or "-" in name or any(c.isdigit() for c in name) or bool(re.search(r"[a-z][A-Z]", name))
+
+
 class Vocabulary:
     """Words that are specific to YOUR project. Anything here is abstracted before leaving."""
 
@@ -130,11 +137,11 @@ class Vocabulary:
         for dirpath, dirnames, filenames in os.walk(root):
             dirnames[:] = [d for d in dirnames if d not in _SKIP_DIRS]
             for d in dirnames:
-                if d.lower() not in _COMMON_DIRS:
+                if d.lower() not in _COMMON_DIRS and _looks_like_identifier(d):
                     vocab.add(d)
             for name in filenames:
                 p = Path(dirpath) / name
-                if p.stem.lower() not in _COMMON_DIRS:
+                if p.stem.lower() not in _COMMON_DIRS and _looks_like_identifier(p.stem):
                     vocab.add(p.stem)
                 vocab.add(name)
                 is_env = name.startswith(".env")
